@@ -6,3 +6,8 @@ pandas
 tqdm
 librosa
 sklearn
+torchaudio
+soundfile
+audiomentations
+ffmpeg-python
+matplotlib
