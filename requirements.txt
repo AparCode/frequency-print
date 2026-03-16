@@ -5,9 +5,8 @@ opencv-python
 pandas
 tqdm
 librosa
-sklearn
+scikit-learn
 torchaudio
 soundfile
-audiomentations
-ffmpeg-python
 matplotlib
+pyloudnorm
