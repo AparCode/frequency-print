@@ -10,3 +10,4 @@ torchaudio
 soundfile
 matplotlib
 pyloudnorm
+torchcodec
