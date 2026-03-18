@@ -1,65 +1,79 @@
-# -----------------
-# PREPROCESSING
-# -----------------
+"""Preprocessing utilities for manifest creation and basic audio loading."""
 
-import pathlib
+from pathlib import Path
+
 import pandas as pd
-import numpy as np
 import soundfile as sf
 import torch
 import torchaudio
-import pyloudnorm as pyln
-import tqdm
+
+
+MANIFEST_COLUMNS = ["path", "label", "source_dataset", "generator_family", "track_id"]
+IGNORED_PATH_PARTS = {"__MACOSX"}
+
+
+def _infer_source_metadata(file_path: Path):
+    """Infer source and generator metadata from a file path."""
+    parts = file_path.parts
+    parts_lower = [p.lower() for p in parts]
+
+    if "fakemusiccaps" in parts_lower:
+        idx = parts_lower.index("fakemusiccaps")
+        generator = parts[idx + 1] if idx + 1 < len(parts) - 1 else "unknown"
+        return "FakeMusicCaps", generator
+
+    if "real" in parts_lower:
+        return "real", "real"
+
+    if "fake" in parts_lower:
+        return "fake", "unknown"
+
+    return "unknown", "unknown"
+
+
+def _normalize_filetypes(filetype, num_paths):
+    """Normalize a filetype argument to a list matching the number of paths."""
+    if isinstance(filetype, (list, tuple)):
+        if len(filetype) != num_paths:
+            raise ValueError("When filetype is a list/tuple, it must match len(paths).")
+        return [str(ext).lstrip(".") for ext in filetype]
+
+    return [str(filetype).lstrip(".")] * num_paths
 
 # Collect and label all clips
 def collect_clips(path, label, filetype="wav"):
     clips = []
 
-    # create a table with these columns
-    # path, label, source_dataset, generator_family, track_id
-    for file in pathlib.Path(path).rglob(f"*.{filetype}"):
-        if "__MACOSX" in file.parts:
+    pattern = f"*.{str(filetype).lstrip('.')}"
+    for file in Path(path).rglob(pattern):
+        if any(part in IGNORED_PATH_PARTS for part in file.parts):
             continue
 
         file_path = str(file)
-        source_dataset = "unknown"
-        generator_family = "unknown"
-
-        if "FakeMusicCaps" in file.parts:
-            source_dataset = "FakeMusicCaps"
-            idx = file.parts.index("FakeMusicCaps")
-            if idx + 1 < len(file.parts) - 1:
-                generator_family = file.parts[idx + 1]
-        elif "real" in file.parts:
-            source_dataset = "real"
-            generator_family = "real"
-        elif "fake" in file.parts:
-            source_dataset = "fake"
-
+        source_dataset, generator_family = _infer_source_metadata(file)
         track_id = file.stem  # filename without extension
 
         clips.append((file_path, label, source_dataset, generator_family, track_id))
-    return pd.DataFrame(clips, columns=["path", "label", "source_dataset", "generator_family", "track_id"])
+
+    return pd.DataFrame(clips, columns=MANIFEST_COLUMNS)
 
 
-# Building one master master list of all clips and labels
+# Building one master list of all clips and labels
 def build_master_list(paths, labels, filetype="wav"):
-    if isinstance(filetype, (list, tuple)):
-        if len(filetype) != len(paths):
-            raise ValueError("When filetype is a list/tuple, it must match len(paths).")
-        filetypes = list(filetype)
-    else:
-        filetypes = [filetype] * len(paths)
+    if len(paths) != len(labels):
+        raise ValueError("paths and labels must have the same length.")
 
-    master_list = []
+    filetypes = _normalize_filetypes(filetype, len(paths))
+
+    master_frames = []
     for path, label, ext in zip(paths, labels, filetypes):
         df = collect_clips(path, label, ext)
-        master_list.append(df)
+        master_frames.append(df)
 
-    if len(master_list) == 0:
-        return pd.DataFrame(columns=["path", "label", "source_dataset", "generator_family", "track_id"])
+    if not master_frames:
+        return pd.DataFrame(columns=MANIFEST_COLUMNS)
 
-    return pd.concat(master_list, ignore_index=True)
+    return pd.concat(master_frames, ignore_index=True)
 
 # Load audio and convert it to a waveform array
 def load_audio(file_path):
@@ -100,19 +114,6 @@ def validate_clip(audio, sr):
 # Process one clip through all steps
 def process_clip(file_path, target_sr=32000, target_length=10, target_lufs=-23):
     pass
-    # try:
-    #     audio, sr = load_audio(file_path)
-    #     audio, sr = resample_audio(audio, sr, target_sr)
-    #     audio = trim_edge_silence(audio, sr)
-    #     audio = trim_clip_length(audio, sr, target_length)
-    #     audio = normalize_loudness(audio, sr, target_lufs)
-    #     if validate_clip(audio, sr):
-    #         return audio
-    #     else:
-    #         return None
-    # except Exception as e:
-    #     print(f"Error processing {file_path}: {e}")
-    #     return None 
 
 def assign_splits():
     pass
