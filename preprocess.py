@@ -18,10 +18,24 @@ def collect_clips(path, label, filetype="wav"):
     # create a table with these columns
     # path, label, source_dataset, generator_family, track_id
     for file in pathlib.Path(path).rglob(f"*.{filetype}"):
+        if "__MACOSX" in file.parts:
+            continue
+
         file_path = str(file)
-        label = label
-        source_dataset = file.parts[-4]  # e.g., "FakeMusicCaps"
-        generator_family = file.parts[-3]  # e.g., "audioldm2"
+        source_dataset = "unknown"
+        generator_family = "unknown"
+
+        if "FakeMusicCaps" in file.parts:
+            source_dataset = "FakeMusicCaps"
+            idx = file.parts.index("FakeMusicCaps")
+            if idx + 1 < len(file.parts) - 1:
+                generator_family = file.parts[idx + 1]
+        elif "real" in file.parts:
+            source_dataset = "real"
+            generator_family = "real"
+        elif "fake" in file.parts:
+            source_dataset = "fake"
+
         track_id = file.stem  # filename without extension
 
         clips.append((file_path, label, source_dataset, generator_family, track_id))
@@ -30,16 +44,32 @@ def collect_clips(path, label, filetype="wav"):
 
 # Building one master master list of all clips and labels
 def build_master_list(paths, labels, filetype="wav"):
+    if isinstance(filetype, (list, tuple)):
+        if len(filetype) != len(paths):
+            raise ValueError("When filetype is a list/tuple, it must match len(paths).")
+        filetypes = list(filetype)
+    else:
+        filetypes = [filetype] * len(paths)
+
     master_list = []
-    for path, label in zip(paths, labels):
-        df = collect_clips(path, label, filetype)
+    for path, label, ext in zip(paths, labels, filetypes):
+        df = collect_clips(path, label, ext)
         master_list.append(df)
-    
+
+    if len(master_list) == 0:
+        return pd.DataFrame(columns=["path", "label", "source_dataset", "generator_family", "track_id"])
+
     return pd.concat(master_list, ignore_index=True)
 
 # Load audio and convert it to a waveform array
 def load_audio(file_path):
-    audio, sr = torchaudio.load(file_path)
+    try:
+        audio, sr = torchaudio.load(file_path)
+    except Exception:
+        # Fallback path when torchaudio backend dependencies are unavailable.
+        wav, sr = sf.read(file_path, dtype="float32", always_2d=True)
+        audio = torch.from_numpy(wav.T)
+
     if audio.shape[0] > 1:
         audio = torch.mean(audio, dim=0, keepdim=True)
     return audio, sr
