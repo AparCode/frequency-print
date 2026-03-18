@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from tqdm.auto import tqdm
+import tensorflow as tf
 
 from datasets import AudioDataset
 from models import SimpleCNN, ResNet18, ResNet34
@@ -257,6 +258,9 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = build_model("resnet18", num_classes=2, pretrained=False).to(device)
 
+    log_dir = "logs/fit/" + pp.get_timestamp()
+    tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+
     counts = train_df["label"].value_counts().to_dict()
     w0 = 1.0 / max(counts.get(0, 1), 1)
     w1 = 1.0 / max(counts.get(1, 1), 1)
@@ -275,6 +279,7 @@ def main():
         device=device,
         num_epochs=3,
         chkpt_path="checkpoint_debug.pth",
+        callbacks=[tb_callback]
     )
 
 

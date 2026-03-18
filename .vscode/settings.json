@@ -2,5 +2,5 @@
     "python.defaultInterpreterPath": "C:\\Users\\Apar2\\miniconda3\\envs\\frequency-print\\python.exe",
     "python.pythonPath": "C:\\Users\\Apar2\\miniconda3\\envs\\frequency-print\\python.exe",
     "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:pip"
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
