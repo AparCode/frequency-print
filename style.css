@@ -1,0 +1,45 @@
+html, body {
+    min-height: 100%;
+    color: white;
+}
+
+body{
+    margin: 0;
+    background-image: linear-gradient(to bottom, rgb(0, 0, 0), rgb(132, 0, 255));
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    background-attachment: fixed;
+}
+
+h1{
+    color: white;
+    text-align: center;
+}
+
+h2{
+    color: white;
+    text-align: center;
+}
+
+input{
+    display: block;
+    margin: 20px auto;
+    text-align: center;
+}
+
+p{
+    color: white;
+    text-align: center;
+}
+
+button{
+    display: block;
+    margin: 20px auto;
+    text-align: center;
+}
+
+audio{
+    display: block;
+    margin: 20px auto;
+    text-align: center;
+}

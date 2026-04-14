@@ -1,9 +1,18 @@
-<!DOCTYPE html>
-<html>
-<body>
+<!DOCTYPE html> 
+<link rel="stylesheet" href="style.css">
+<html> 
+  <body> 
+    <h1>FrequencyPrint</h1> 
+    <h2>About</h2>
+    <p>FrequencyPrint is an AI-powered tool that analyzes an audio file and 
+    checks to see whether it's "deepfake" generated or not. </p>
+    <input type="file" id="audio" accept="audio/*"> 
+    <audio id="audioPlayer" controls></audio> 
 
-<h1>My First Heading</h1>
-<p>My first paragraph.</p>
-
-</body>
+    <div style="margin-top: 12px;"> 
+      <button id="predictBtn" type="button">Run Prediction</button> 
+      <p id="predictionResult"></p> 
+    </div> 
+    <script src="main.js"></script> 
+  </body> 
 </html>
