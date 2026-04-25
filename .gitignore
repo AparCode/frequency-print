@@ -1,1 +1,9 @@
 data/*
+venv
+logs/*
+old_logs/*
+checkpoints/old/*
+__pycache__/
+preds_resnet18.csv
+preds_resnet34.csv
+preds_simplecnn.csv
