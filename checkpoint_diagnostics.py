@@ -1,147 +1,305 @@
-import os
-import shutil
-import subprocess
-from contextlib import contextmanager
-import warnings
+import argparse
+from collections import Counter
+from pathlib import Path
+from typing import Optional
 
-import librosa
 import numpy as np
-import pandas as pd
 import torch
-import torch.nn.functional as F
-from torch.utils.data import Dataset
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 
-warnings.filterwarnings("ignore", message=".*Xing stream size off by more than 1%.*")
+import preprocess as pp
+from train import AudioDataset, DataLoader, build_model, train_test_split_master
 
-_FAILED_DECODE_PATHS = set()
+
+DEFAULT_CHECKPOINTS = [
+    "checkpoints/simplecnn/simplecnn_20260407_183623/best_ckpt.pth",
+    "checkpoints/resnet18/resnet18_20260407_183724/best_ckpt.pth",
+    "checkpoints/resnet34/resnet34_20260407_183741/best_ckpt.pth",
+]
 
 
-@contextmanager
-def _suppress_stderr_fd():
-    # Some audio backends print directly to stderr file descriptor 2.
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    saved_stderr_fd = os.dup(2)
+def infer_fallback_model_name(ckpt_path: str) -> str:
+    """Infer model architecture from checkpoint path segments."""
+    p = Path(ckpt_path)
+    parts = [x.lower() for x in p.parts]
+    for candidate in ["simplecnn", "resnet18", "resnet34"]:
+        if candidate in parts:
+            return candidate
+    return "resnet18"
+
+
+def label_counts(df) -> Counter:
+    """Return label frequency counts for a split DataFrame."""
+    return Counter(df["label"].tolist())
+
+
+def split_and_report(
+    master_df,
+    val_ratio,
+    test_ratio,
+    group_col,
+    random_state,
+    split_mode="group",
+    holdout_generator: Optional[str] = None,
+):
+    """Split data and print per-split class counts.
+
+    split_mode mirrors train.py so diagnostics can validate the same split policy.
+    """
+    train_df, val_df, test_df = train_test_split_master(
+        master_df,
+        val_ratio=val_ratio,
+        test_ratio=test_ratio,
+        group_col=group_col,
+        random_state=random_state,
+        split_mode=split_mode,
+        holdout_generator=holdout_generator,
+    )
+
+    train_counts = label_counts(train_df)
+    val_counts = label_counts(val_df)
+    test_counts = label_counts(test_df)
+
+    print("Split sizes and label counts")
+    print(f"train: {len(train_df)} {dict(train_counts)}")
+    print(f"val:   {len(val_df)} {dict(val_counts)}")
+    print(f"test:  {len(test_df)} {dict(test_counts)}")
+    print("")
+
+    return train_df, val_df, test_df
+
+
+def passes_minimum_per_class(counts: Counter, minimum_per_class: int) -> bool:
+    """Check whether both classes satisfy minimum-count threshold."""
+    return counts.get(0, 0) >= minimum_per_class and counts.get(1, 0) >= minimum_per_class
+
+
+def find_seed_with_minimums(
+    master_df,
+    val_ratio,
+    test_ratio,
+    group_col,
+    minimum_per_class,
+    max_tries=500,
+    split_mode="group",
+    holdout_generator: Optional[str] = None,
+):
+    """Search for a split seed that satisfies minimum class counts."""
+    for seed in range(max_tries):
+        _, _, test_df = train_test_split_master(
+            master_df,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+            group_col=group_col,
+            random_state=seed,
+            split_mode=split_mode,
+            holdout_generator=holdout_generator,
+        )
+        counts = label_counts(test_df)
+        if passes_minimum_per_class(counts, minimum_per_class):
+            return seed, counts
+    return None, None
+
+
+def evaluate_checkpoint(ckpt_path, test_loader, device):
+    """Evaluate one checkpoint and print robust metrics."""
+    ckpt = torch.load(ckpt_path, map_location=device)
+    fallback_name = infer_fallback_model_name(ckpt_path)
+    model_name = ckpt.get("model_name", fallback_name)
+    num_classes = int(ckpt.get("num_classes", 2))
+
+    model = build_model(model_name, num_classes=num_classes, pretrained=False).to(device)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    y_true = []
+    y_pred = []
+    y_prob = []
+
+    with torch.no_grad():
+        for x, y in test_loader:
+            x = x.to(device, non_blocking=True)
+            outputs = model(x)
+            probs = torch.softmax(outputs, dim=1)[:, 1].cpu().numpy()
+            pred = torch.argmax(outputs, dim=1).cpu().numpy()
+
+            y_true.extend(y.numpy().tolist())
+            y_pred.extend(pred.tolist())
+            y_prob.extend(probs.tolist())
+
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    y_prob = np.array(y_prob)
+
+    acc = accuracy_score(y_true, y_pred)
+    bal_acc = balanced_accuracy_score(y_true, y_pred)
+    macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    per_class = precision_recall_fscore_support(y_true, y_pred, zero_division=0, labels=[0, 1])
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+
     try:
-        os.dup2(devnull_fd, 2)
-        yield
-    finally:
-        os.dup2(saved_stderr_fd, 2)
-        os.close(saved_stderr_fd)
-        os.close(devnull_fd)
+        roc = roc_auc_score(y_true, y_prob) if len(set(y_true.tolist())) == 2 else float("nan")
+    except ValueError:
+        roc = float("nan")
+
+    true_counts = Counter(y_true.tolist())
+    pred_counts = Counter(y_pred.tolist())
+    majority_baseline = max(true_counts.values()) / len(y_true)
+
+    print("=" * 72)
+    print(f"model: {model_name}")
+    print(f"checkpoint: {ckpt_path}")
+    print(f"accuracy: {acc:.6f}")
+    print(f"balanced_accuracy: {bal_acc:.6f}")
+    print(f"macro_f1: {macro_f1:.6f}")
+    print(f"roc_auc: {roc:.6f}" if not np.isnan(roc) else "roc_auc: nan")
+    print(f"true_counts: {dict(true_counts)}")
+    print(f"pred_counts: {dict(pred_counts)}")
+    print(f"majority_baseline_accuracy: {majority_baseline:.6f}")
+    print("confusion_matrix [[tn, fp], [fn, tp]]:")
+    print(cm)
+    print(f"per_class_precision [class0, class1]: {per_class[0].tolist()}")
+    print(f"per_class_recall [class0, class1]: {per_class[1].tolist()}")
+    print(f"per_class_f1 [class0, class1]: {per_class[2].tolist()}")
+
+    if len(true_counts) < 2:
+        print("WARNING: Only one class present in y_true, so accuracy is misleading.")
+    elif acc <= majority_baseline + 1e-12:
+        print("WARNING: Accuracy is at or below the majority-class baseline.")
 
 
-def _load_audio_ffmpeg(audio_path, target_sr):
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if ffmpeg_bin is None:
-        raise RuntimeError("ffmpeg is not available in PATH")
+def parse_args():
+    """Parse command-line arguments for diagnostics workflow."""
+    parser = argparse.ArgumentParser(
+        description="Diagnose split imbalance and evaluate checkpoints with robust metrics."
+    )
+    parser.add_argument("--fake_dir", default="data/fake", help="Path to fake audio root")
+    parser.add_argument("--real_dir", default="data/real", help="Path to real audio root")
+    parser.add_argument("--val_ratio", type=float, default=0.2)
+    parser.add_argument("--test_ratio", type=float, default=0.2)
+    parser.add_argument("--group_col", default="track_id")
+    parser.add_argument(
+        "--split_mode",
+        choices=["group", "generator_holdout"],
+        default="group",
+        help="Split strategy used in diagnostics (mirrors train.py).",
+    )
+    parser.add_argument(
+        "--holdout_generator",
+        default=None,
+        help="generator_family to hold out when --split_mode generator_holdout",
+    )
+    parser.add_argument("--seed", type=int, default=35, help="Split random_state")
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--min_per_class", type=int, default=50, help="Minimum required examples of each class in test split")
+    parser.add_argument(
+        "--checkpoints",
+        nargs="+",
+        default=DEFAULT_CHECKPOINTS,
+        help="One or more checkpoint paths",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit with code 2 if test split fails minimum-per-class check",
+    )
+    parser.add_argument(
+        "--find_seed",
+        action="store_true",
+        help="Search for a split seed that satisfies minimum-per-class test counts",
+    )
+    parser.add_argument(
+        "--max_seed_tries",
+        type=int,
+        default=500,
+        help="How many seeds to try when --find_seed is set",
+    )
+    parser.add_argument(
+        "--skip_eval",
+        action="store_true",
+        help="Only run split diagnostics and optional seed search",
+    )
+    return parser.parse_args()
 
-    cmd = [
-        ffmpeg_bin,
-        "-v",
-        "error",
-        "-nostdin",
-        "-i",
-        audio_path,
-        "-f",
-        "f32le",
-        "-ac",
-        "1",
-        "-ar",
-        str(target_sr),
-        "pipe:1",
-    ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    if proc.returncode != 0 or not proc.stdout:
-        stderr_msg = proc.stderr.decode("utf-8", errors="ignore").strip()
-        raise RuntimeError(stderr_msg or "ffmpeg failed to decode audio")
 
-    audio_data = np.frombuffer(proc.stdout, dtype=np.float32)
-    if audio_data.size == 0:
-        raise RuntimeError("Decoded empty audio stream")
-    return audio_data, target_sr
+def main() -> None:
+    """Run split diagnostics and optional checkpoint evaluation."""
+    args = parse_args()
 
+    master_df = pp.build_master_list(
+        paths=[args.fake_dir, args.real_dir],
+        labels=[0, 1],
+        filetype=["wav", "mp3"],
+    )
 
-def _load_audio_robust(audio_path, target_sr):
-    try:
-        with _suppress_stderr_fd():
-            return librosa.load(audio_path, sr=target_sr, mono=True)
-    except Exception:
-        return _load_audio_ffmpeg(audio_path, target_sr)
+    _, _, test_df = split_and_report(
+        master_df,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
+        group_col=args.group_col,
+        random_state=args.seed,
+        split_mode=args.split_mode,
+        holdout_generator=args.holdout_generator,
+    )
 
+    test_counts = label_counts(test_df)
+    split_ok = passes_minimum_per_class(test_counts, args.min_per_class)
 
-class AudioDataset(Dataset):
-    def __init__(self, dataframe, target_sr=32000, clip_seconds=10, n_mels=128, image_size=224, transform=None, augment=False):
-        self.dataframe = dataframe.reset_index(drop=True) if isinstance(dataframe, pd.DataFrame) else pd.DataFrame(dataframe)
-        if "path" not in self.dataframe.columns or "label" not in self.dataframe.columns:
-            raise ValueError("AudioDataset expects a DataFrame with 'path' and 'label' columns.")
-
-        self.target_sr = target_sr
-        self.clip_seconds = clip_seconds
-        self.n_mels = n_mels
-        self.image_size = image_size
-        self.transform = transform
-        self.augment = augment
-
-    def __len__(self):
-        return len(self.dataframe)
-
-    def _spec_augment(self, mel_tensor):
-        # mel_tensor has shape [1, n_mels, time]
-        if torch.rand(1).item() < 0.8:
-            f = torch.randint(0, 16, (1,)).item()
-            if f > 0:
-                f0 = torch.randint(0, max(1, mel_tensor.shape[1] - f + 1), (1,)).item()
-                mel_tensor[:, f0:f0 + f, :] = 0.0
-
-        if torch.rand(1).item() < 0.8:
-            t = torch.randint(0, 32, (1,)).item()
-            if t > 0:
-                t0 = torch.randint(0, max(1, mel_tensor.shape[2] - t + 1), (1,)).item()
-                mel_tensor[:, :, t0:t0 + t] = 0.0
-
-        return mel_tensor
-
-    def __getitem__(self, idx):
-        row = self.dataframe.iloc[idx]
-        audio_path = str(row["path"])
-        label = int(row["label"])
-
-        try:
-            audio_data, _ = _load_audio_robust(audio_path, self.target_sr)
-        except Exception as decode_err:
-            if audio_path not in _FAILED_DECODE_PATHS:
-                warnings.warn(f"Failed to decode {audio_path}: {decode_err}. Using silence for this sample.")
-                _FAILED_DECODE_PATHS.add(audio_path)
-            audio_data = np.zeros(int(self.target_sr * self.clip_seconds), dtype=np.float32)
-
-        target_samples = int(self.target_sr * self.clip_seconds)
-        if audio_data.shape[0] < target_samples:
-            audio_data = np.pad(audio_data, (0, target_samples - audio_data.shape[0]))
-        else:
-            if self.augment:
-                max_start = audio_data.shape[0] - target_samples
-                start = int(torch.randint(0, max_start + 1, (1,)).item()) if max_start > 0 else 0
+    if not split_ok:
+        print(
+            "WARNING: Test split fails minimum-per-class check "
+            f"(need at least {args.min_per_class} of each class, got {dict(test_counts)})."
+        )
+        if args.find_seed:
+            # Seed search is useful for group mode; for generator_holdout it only
+            # changes the real-class split because fake holdout is deterministic.
+            found_seed, found_counts = find_seed_with_minimums(
+                master_df,
+                val_ratio=args.val_ratio,
+                test_ratio=args.test_ratio,
+                group_col=args.group_col,
+                minimum_per_class=args.min_per_class,
+                max_tries=args.max_seed_tries,
+                split_mode=args.split_mode,
+                holdout_generator=args.holdout_generator,
+            )
+            if found_seed is None:
+                print(f"No valid seed found within 0..{args.max_seed_tries - 1}.")
             else:
-                start = max(0, (audio_data.shape[0] - target_samples) // 2)
-            audio_data = audio_data[start:start + target_samples]
+                print(
+                    "Suggested seed that satisfies minimum test counts: "
+                    f"{found_seed} with counts {dict(found_counts)}"
+                )
 
-        mel = librosa.feature.melspectrogram(y=audio_data, sr=self.target_sr, n_mels=self.n_mels)
-        mel_db = librosa.power_to_db(mel, ref=np.max)
-        mel_tensor = torch.from_numpy(mel_db).float().unsqueeze(0)
-        mel_tensor = (mel_tensor - mel_tensor.mean()) / (mel_tensor.std() + 1e-6)
+        if args.strict:
+            raise SystemExit(2)
+    else:
+        print("Test split passes minimum-per-class check.")
 
-        if self.augment:
-            mel_tensor = self._spec_augment(mel_tensor)
+    if args.skip_eval:
+        return
 
-        mel_tensor = F.interpolate(
-            mel_tensor.unsqueeze(0),
-            size=(self.image_size, self.image_size),
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze(0)
-        mel_tensor = mel_tensor.repeat(3, 1, 1)
+    test_loader = DataLoader(
+        AudioDataset(test_df),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=(args.num_workers > 0),
+    )
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        if self.transform:
-            mel_tensor = self.transform(mel_tensor)
+    for ckpt_path in args.checkpoints:
+        evaluate_checkpoint(ckpt_path, test_loader=test_loader, device=device)
 
-        return mel_tensor, torch.tensor(label, dtype=torch.long)
+
+if __name__ == "__main__":
+    main()

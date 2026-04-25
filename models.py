@@ -1,15 +1,15 @@
+"""Model architectures used by the project."""
+
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
 
-class CannotParseModelName(ValueError):
-    def __init__(self, str_name:str):
-        super().__init__(f"Cannot parse model name: {str_name}")
 
-# Defining the Simple CNN architecture with 
 class SimpleCNN(nn.Module):
-    def __init__(self, num_classes:int=2):
-        super(SimpleCNN, self).__init__()
+    """Lightweight CNN baseline for real-vs-fake audio spectrograms."""
+
+    def __init__(self, num_classes: int = 2):
+        super().__init__()
         self.conv1 = nn.Conv2d(3, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
@@ -29,8 +29,10 @@ class SimpleCNN(nn.Module):
         return x
 
 class ResNet18(nn.Module):
-    def __init__(self, num_classes:int=2, pretrained:bool=False):
-        super(ResNet18, self).__init__()
+    """ResNet18 wrapper with a configurable output head."""
+
+    def __init__(self, num_classes: int = 2, pretrained: bool = False):
+        super().__init__()
         weights = models.ResNet18_Weights.DEFAULT if pretrained else None
         self.model = models.resnet18(weights=weights)
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
@@ -40,8 +42,10 @@ class ResNet18(nn.Module):
 
 
 class ResNet34(nn.Module):
-    def __init__(self, num_classes:int=2, pretrained:bool=False):
-        super(ResNet34, self).__init__()
+    """ResNet34 wrapper with a configurable output head."""
+
+    def __init__(self, num_classes: int = 2, pretrained: bool = False):
+        super().__init__()
         weights = models.ResNet34_Weights.DEFAULT if pretrained else None
         self.model = models.resnet34(weights=weights)
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)

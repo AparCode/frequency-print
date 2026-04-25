@@ -1,5 +1,6 @@
 """Preprocessing utilities for manifest creation and basic audio loading."""
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,11 @@ import torchaudio
 
 MANIFEST_COLUMNS = ["path", "label", "source_dataset", "generator_family", "track_id"]
 IGNORED_PATH_PARTS = {"__MACOSX"}
+
+
+def get_timestamp():
+    """Return a timestamp string for logging directories."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def _infer_source_metadata(file_path: Path):
@@ -40,8 +46,9 @@ def _normalize_filetypes(filetype, num_paths):
 
     return [str(filetype).lstrip(".")] * num_paths
 
-# Collect and label all clips
+
 def collect_clips(path, label, filetype="wav"):
+    """Collect audio clips from one root path with a fixed label."""
     clips = []
 
     pattern = f"*.{str(filetype).lstrip('.')}"
@@ -58,8 +65,8 @@ def collect_clips(path, label, filetype="wav"):
     return pd.DataFrame(clips, columns=MANIFEST_COLUMNS)
 
 
-# Building one master list of all clips and labels
 def build_master_list(paths, labels, filetype="wav"):
+    """Build one manifest DataFrame from multiple source roots and labels."""
     if len(paths) != len(labels):
         raise ValueError("paths and labels must have the same length.")
 
@@ -75,8 +82,8 @@ def build_master_list(paths, labels, filetype="wav"):
 
     return pd.concat(master_frames, ignore_index=True)
 
-# Load audio and convert it to a waveform array
 def load_audio(file_path):
+    """Load audio from disk and return mono waveform tensor + sample rate."""
     try:
         audio, sr = torchaudio.load(file_path)
     except Exception:
@@ -88,30 +95,26 @@ def load_audio(file_path):
         audio = torch.mean(audio, dim=0, keepdim=True)
     return audio, sr
 
-# Resample to one sample rate
 def resample_audio(audio, orig_sr, target_sr=32000):
+    """Resample an audio tensor to a target sample rate."""
     if orig_sr != target_sr:
         resampler = torchaudio.transforms.Resample(orig_sr, target_sr)
         audio = resampler(audio)
     return audio, target_sr
 
-# Remove only leading and trailing silence
 def trim_edge_silence(audio, sr, top_db=20):
     pass
 
-# Make every clip 10 seconds long
 def trim_clip_length(audio, sr, target_length=10):
     pass
 
 # Normalize loudness to -23 LUFS
-def normalize_loudness(audio, sr, target_lufs=-23): 
+def normalize_loudness(audio, sr, target_lufs=-23):
     pass
 
-# Catch bad clips and return None
 def validate_clip(audio, sr):
     pass
 
-# Process one clip through all steps
 def process_clip(file_path, target_sr=32000, target_length=10, target_lufs=-23):
     pass
 
