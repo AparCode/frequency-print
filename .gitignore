@@ -3,9 +3,11 @@ venv
 logs/*
 old_logs/*
 checkpoints/old/*
+checkpoints/current_ckpt/*
 __pycache__/
 preds_resnet18.csv
 preds_resnet34.csv
 preds_simplecnn.csv
 yt_vids/*
 checkpoint_debug.pth
+*.pth
