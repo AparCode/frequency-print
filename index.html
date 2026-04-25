@@ -8,8 +8,13 @@
   <body> 
     <h1>FrequencyPrint</h1> 
     <h2>About</h2>
-    <p>FrequencyPrint is an AI-powered tool that analyzes an audio file and 
-    checks to see whether it's "deepfake" generated or not. </p>
+    <p>FrequencyPrint is a tool that analyzes given audio files and identifies whether the file is deepfake-generated. This can
+    range from full-on generated audio to AI covers (those that have real instrumentals but are sung by an AI). </p>
+    <p>The main purpose of FrequencyPrint is to utilize AI to distinguish covers that have deepfake-generated vocals from actual music covers.
+    This is done by using Convolutional Neural Networks (CNNs) to detect artifacts inaudible to the human ear and not seen in real audio, using spectrograms of the audio files,
+    making it easier for the program to classify audio. </p>
+
+
     <input type="file" id="audio" accept="audio/*"> 
     <audio id="audioPlayer" controls></audio> 
 
