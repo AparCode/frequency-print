@@ -5,7 +5,7 @@ html, body {
 
 body{
     margin: 0;
-    background-image: linear-gradient(to bottom, rgb(0, 0, 0), rgb(132, 0, 255));
+    background-image: linear-gradient(to bottom, rgb(0, 0, 0), #4cbb17);
     background-repeat: no-repeat;
     background-size: 100% 100%;
     background-attachment: fixed;
