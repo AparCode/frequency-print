@@ -7,3 +7,4 @@ __pycache__/
 preds_resnet18.csv
 preds_resnet34.csv
 preds_simplecnn.csv
+yt_vids/*
