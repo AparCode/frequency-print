@@ -8,3 +8,6 @@ librosa
 soundfile
 matplotlib
 tqdm
+fastapi
+uvicorn
+python-multipart
