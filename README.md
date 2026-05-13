@@ -1,5 +1,9 @@
-# frequency-print
-Capstone Project
+<p align= "center">
+<img width="600" height="300" src="frequencyprint_logo_github.png" />
+</p>
+
+<div align= "center">
+
 
 # How To Use
 
