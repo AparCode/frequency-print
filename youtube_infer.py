@@ -20,9 +20,9 @@ from train import build_model
 
 
 DEFAULT_CHECKPOINTS = [
-    "checkpoints/simplecnn/simplecnn_20260413_192400/best_ckpt.pth",
-    "checkpoints/resnet18/resnet18_20260413_192905/best_ckpt.pth",
-    "checkpoints/resnet34/resnet34_20260413_193023/best_ckpt.pth",
+    "checkpoints/current_ckpt/current_ckpt/simplecnn_20260426_002627/best_ckpt.pth",
+    "checkpoints/current_ckpt/current_ckpt/resnet18_20260426_002654/best_ckpt.pth",
+    "checkpoints/current_ckpt/current_ckpt/resnet34_20260426_002730/best_ckpt.pth",
 ]
 
 

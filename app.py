@@ -17,12 +17,9 @@ from models import ResNet18, ResNet34, SimpleCNN
 ROOT = Path(__file__).resolve().parent
 
 CHECKPOINT_CANDIDATES = [
-    ROOT / "checkpoints" / "current_ckpt" / "resnet34_20260421_231207" / "best_ckpt.pth",
-    ROOT / "checkpoints" / "current_ckpt" / "resnet18_20260421_231154" / "best_ckpt.pth",
-    ROOT / "checkpoints" / "current_ckpt" / "simplecnn_20260421_231117" / "best_ckpt.pth",
-    ROOT / "checkpoints" / "resnet34" / "resnet34_20260413_193023" / "best_ckpt.pth",
-    ROOT / "checkpoints" / "resnet18" / "resnet18_20260413_192905" / "best_ckpt.pth",
-    ROOT / "checkpoints" / "simplecnn" / "simplecnn_20260413_192400" / "best_ckpt.pth",
+    ROOT / "checkpoints" / "current_ckpt" / "simplecnn_20260426_002627" / "best_ckpt.pth",
+    ROOT / "checkpoints" / "current_ckpt" / "resnet18_20260425_133316" / "best_ckpt.pth",
+    ROOT / "checkpoints" / "current_ckpt" / "resnet34_20260426_002730" / "best_ckpt.pth"
 ]
 
 
