@@ -3,8 +3,10 @@
 </p>
 
 <div align= "center">
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=fff)](#)
+</div>
 
-
+<div>
 # How To Use
 
 ## Run the web app on Windows (PowerShell)
